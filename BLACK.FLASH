@@ -1,7 +1,8 @@
--- DIVERGENT FIST BACKSTEP TOGGLE MÓVEL (COM NPC)
+-- DIVERGENT FIST BACKSTEP DASH (CORRIGIDO - SEM TRAVAMENTO)
 local Player = game:GetService("Players").LocalPlayer
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 
 -- ============================================
 -- CONFIGURAÇÕES
@@ -16,34 +17,22 @@ local backstepDelay = 0.35
 local function executeDivergentFist()
     pcall(function()
         local character = Player.Character
-        if not character then 
-            print("❌ Personagem não encontrado!")
-            return
-        end
+        if not character then return end
         
         local moveset = character:FindFirstChild("Moveset")
-        if not moveset then
-            print("❌ Moveset não encontrado!")
-            return
-        end
+        if not moveset then return end
         
         local divergentFist = moveset:FindFirstChild("Divergent Fist")
-        if not divergentFist then
-            print("❌ Divergent Fist não encontrado!")
-            return
-        end
+        if not divergentFist then return end
         
-        local args = {
-            [1] = divergentFist
-        }
-        
-        game:GetService("ReplicatedStorage").Knit.Knit.Services.DivergentFistService.RE.Activated:FireServer(unpack(args))
+        local remote = game:GetService("ReplicatedStorage").Knit.Knit.Services.DivergentFistService.RE.Activated
+        remote:FireServer(divergentFist)
         print("✅ Divergent Fist executado!")
     end)
 end
 
 -- ============================================
--- FUNÇÃO PARA ENCONTRAR INIMIGO MAIS PRÓXIMO (PLAYER OU NPC)
+-- FUNÇÃO PARA ENCONTRAR INIMIGO MAIS PRÓXIMO
 -- ============================================
 local function findClosestEnemy()
     local character = Player.Character
@@ -55,7 +44,6 @@ local function findClosestEnemy()
     local closestDistance = 50
     local closestEnemy = nil
     
-    -- Procurar players inimigos
     for _, otherPlayer in ipairs(game.Players:GetPlayers()) do
         if otherPlayer ~= Player then
             local otherChar = otherPlayer.Character
@@ -69,10 +57,8 @@ local function findClosestEnemy()
         end
     end
     
-    -- Procurar NPCs
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("Model") and obj:FindFirstChild("Humanoid") and obj:FindFirstChild("HumanoidRootPart") then
-            -- Verificar se não é player
             local isPlayer = false
             for _, p in ipairs(game.Players:GetPlayers()) do
                 if p.Character == obj then
@@ -94,87 +80,112 @@ local function findClosestEnemy()
 end
 
 -- ============================================
--- FUNÇÃO PARA DAR BACKSTEP (POSICIONAR ATRÁS DO INIMIGO)
+-- FUNÇÃO PARA DAR DASH (SIMPLES E FUNCIONAL)
 -- ============================================
-local function doBackstep(target)
-    if not target then 
-        print("❌ Nenhum alvo para backstep!")
-        return false 
-    end
-    
+local function dashToPosition(targetPosition, lookPosition)
     local character = Player.Character
-    if not character or not character:FindFirstChild("HumanoidRootPart") then
-        print("❌ Personagem não encontrado!")
-        return false
-    end
+    if not character then return false end
     
-    local targetRoot = target:FindFirstChild("HumanoidRootPart")
-    if not targetRoot then 
-        print("❌ Alvo sem HumanoidRootPart!")
-        return false 
-    end
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    if not rootPart then return false end
     
-    -- Calcular posição atrás do inimigo
-    local targetPos = targetRoot.Position
-    local myPos = character.HumanoidRootPart.Position
-    local direction = (myPos - targetPos).Unit
-    local behindPosition = targetPos + direction * 4.5
+    local humanoid = character:FindFirstChild("Humanoid")
+    if not humanoid then return false end
     
-    -- Rotacionar personagem para olhar o inimigo
-    local lookAt = CFrame.new(character.HumanoidRootPart.Position, targetPos)
-    character.HumanoidRootPart.CFrame = lookAt
+    -- Salvar velocidade original
+    local originalSpeed = humanoid.WalkSpeed
     
-    -- Teleportar para trás do inimigo (suave)
-    local tweenInfo = TweenInfo.new(0.1, Enum.EasingStyle.Linear)
-    local tween = TweenService:Create(character.HumanoidRootPart, tweenInfo, {CFrame = CFrame.new(behindPosition, targetPos)})
+    -- Parar movimento
+    humanoid.WalkSpeed = 0
+    
+    -- Calcular nova posição e rotação
+    local newCFrame = CFrame.new(targetPosition, lookPosition)
+    
+    -- Criar tween para o dash (bem rápido)
+    local tweenInfo = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+    local tween = TweenService:Create(rootPart, tweenInfo, {CFrame = newCFrame})
+    
+    -- Executar
     tween:Play()
     tween.Completed:Wait()
     
-    print("🎯 Backstep executado! Posicionado atrás de: " .. target.Name)
+    -- Restaurar velocidade
+    humanoid.WalkSpeed = originalSpeed
+    
     return true
 end
 
 -- ============================================
--- FUNÇÃO PARA EXECUTAR O COMBO COM BACKSTEP
+-- FUNÇÃO PARA DASH ATRÁS DO INIMIGO
 -- ============================================
-local function executeComboWithBackstep()
+local function backstepOnEnemy(enemy)
+    if not enemy then return false end
+    
+    local character = Player.Character
+    if not character then return false end
+    
+    local enemyRoot = enemy:FindFirstChild("HumanoidRootPart") or enemy:FindFirstChild("Torso")
+    if not enemyRoot then return false end
+    
+    -- Calcular posição atrás do inimigo (baseado na orientação dele)
+    local enemyCFrame = enemyRoot.CFrame
+    local behindPosition = enemyCFrame.Position - enemyCFrame.LookVector * 4.5
+    
+    -- Ajustar altura para o chão
+    local rayParams = RaycastParams.new()
+    rayParams.FilterDescendantsInstances = {character, enemy}
+    local ray = workspace:Raycast(behindPosition + Vector3.new(0, 5, 0), Vector3.new(0, -10, 0), rayParams)
+    if ray then
+        behindPosition = Vector3.new(behindPosition.X, ray.Position.Y + 2.5, behindPosition.Z)
+    end
+    
+    print("📍 Teleportando para trás de: " .. enemy.Name)
+    
+    -- Executar o dash
+    local success = dashToPosition(behindPosition, enemyCFrame.Position)
+    
+    if success then
+        print("✅ Dash realizado com sucesso!")
+    end
+    
+    return success
+end
+
+-- ============================================
+-- FUNÇÃO PRINCIPAL
+-- ============================================
+local function executeCombo()
     if isExecuting then
-        print("⏳ Aguarde, já está executando...")
+        print("⏳ Já executando...")
         return
     end
     
+    print("========================================")
+    print("🚀 Executando combo...")
     isExecuting = true
     
-    -- Encontrar inimigo mais próximo
     local enemy = findClosestEnemy()
     
     if enemy then
-        print("🎯 Alvo encontrado: " .. enemy.Name)
+        print("🎯 Alvo: " .. enemy.Name)
         
-        -- Dar backstep nas costas do inimigo
-        local backstepSuccess = doBackstep(enemy)
+        -- Dar dash para trás do inimigo
+        local dashed = backstepOnEnemy(enemy)
         
-        if backstepSuccess then
-            -- Pequeno delay após o backstep
-            task.wait(0.05)
-            
-            -- Primeira execução do Divergent Fist
-            executeDivergentFist()
-            
-            -- Aguardar 0.35 segundos
-            task.wait(backstepDelay)
-            
-            -- Segunda execução (backstep)
-            executeDivergentFist()
-        else
-            print("❌ Falha no backstep, executando sem posicionamento...")
-            executeDivergentFist()
-            task.wait(backstepDelay)
-            executeDivergentFist()
+        if dashed then
+            task.wait(0.08)
         end
+        
+        -- Primeiro golpe
+        executeDivergentFist()
+        
+        -- Delay
+        task.wait(backstepDelay)
+        
+        -- Segundo golpe
+        executeDivergentFist()
     else
-        print("❌ Nenhum inimigo/NPC próximo encontrado!")
-        print("⚡ Executando Divergent Fist sem backstep...")
+        print("❌ Nenhum inimigo encontrado!")
         executeDivergentFist()
         task.wait(backstepDelay)
         executeDivergentFist()
@@ -182,22 +193,21 @@ local function executeComboWithBackstep()
     
     task.wait(0.1)
     isExecuting = false
-    
-    print("⚡ Combo completo! (Backstep + 2x Divergent Fist)")
+    print("✅ Combo finalizado!")
+    print("========================================")
 end
 
 -- ============================================
--- CRIAÇÃO DO TOGGLE MÓVEL
+-- INTERFACE
 -- ============================================
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "DivergentBackstep"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = game:GetService("CoreGui")
 
--- Frame principal
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 200, 0, 95)
-MainFrame.Position = UDim2.new(1, -210, 0.5, -47.5)
+MainFrame.Size = UDim2.new(0, 220, 0, 110)
+MainFrame.Position = UDim2.new(1, -230, 0.5, -55)
 MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 MainFrame.BackgroundTransparency = 0.1
 MainFrame.BorderSizePixel = 0
@@ -227,13 +237,13 @@ local Titulo = Instance.new("TextLabel")
 Titulo.Size = UDim2.new(1, 0, 0, 30)
 Titulo.Position = UDim2.new(0, 0, 0, 0)
 Titulo.BackgroundTransparency = 1
-Titulo.Text = "⚡ Backstep Combo"
+Titulo.Text = "⚡ Backstep Dash Combo"
 Titulo.TextColor3 = Color3.fromRGB(0, 200, 255)
 Titulo.Font = Enum.Font.GothamBold
 Titulo.TextSize = 12
 Titulo.Parent = MainFrame
 
--- Linha separadora
+-- Linha
 local Line = Instance.new("Frame")
 Line.Size = UDim2.new(0.9, 0, 0, 1)
 Line.Position = UDim2.new(0.05, 0, 0, 32)
@@ -253,27 +263,27 @@ StatusLabel.TextSize = 11
 StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
 StatusLabel.Parent = MainFrame
 
--- Delay Label
-local DelayLabel = Instance.new("TextLabel")
-DelayLabel.Size = UDim2.new(0.6, 0, 0, 18)
-DelayLabel.Position = UDim2.new(0, 10, 0, 58)
-DelayLabel.BackgroundTransparency = 1
-DelayLabel.Text = "Delay: 0.35s | Backstep"
-DelayLabel.TextColor3 = Color3.fromRGB(150, 150, 170)
-DelayLabel.Font = Enum.Font.Gotham
-DelayLabel.TextSize = 9
-DelayLabel.TextXAlignment = Enum.TextXAlignment.Left
-DelayLabel.Parent = MainFrame
+-- Info
+local InfoLabel = Instance.new("TextLabel")
+InfoLabel.Size = UDim2.new(0.6, 0, 0, 18)
+InfoLabel.Position = UDim2.new(0, 10, 0, 58)
+InfoLabel.BackgroundTransparency = 1
+InfoLabel.Text = "Delay: 0.35s | Dash: 0.12s"
+InfoLabel.TextColor3 = Color3.fromRGB(150, 150, 170)
+InfoLabel.Font = Enum.Font.Gotham
+InfoLabel.TextSize = 9
+InfoLabel.TextXAlignment = Enum.TextXAlignment.Left
+InfoLabel.Parent = MainFrame
 
--- Target Label
+-- Target
 local TargetLabel = Instance.new("TextLabel")
 TargetLabel.Size = UDim2.new(0.9, 0, 0, 16)
-TargetLabel.Position = UDim2.new(0, 10, 0, 74)
+TargetLabel.Position = UDim2.new(0, 10, 0, 76)
 TargetLabel.BackgroundTransparency = 1
 TargetLabel.Text = "Alvo: ---"
 TargetLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
 TargetLabel.Font = Enum.Font.Gotham
-TargetLabel.TextSize = 8
+TargetLabel.TextSize = 9
 TargetLabel.TextXAlignment = Enum.TextXAlignment.Left
 TargetLabel.Parent = MainFrame
 
@@ -287,12 +297,10 @@ ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 ToggleButton.Font = Enum.Font.GothamBold
 ToggleButton.TextSize = 12
 ToggleButton.Parent = MainFrame
+Instance.new("UICorner").CornerRadius = UDim.new(0, 8)
+Instance.new("UICorner").Parent = ToggleButton
 
-local BtnCorner = Instance.new("UICorner")
-BtnCorner.CornerRadius = UDim.new(0, 8)
-BtnCorner.Parent = ToggleButton
-
--- Botão executar manual
+-- Botão executar
 local ExecuteButton = Instance.new("TextButton")
 ExecuteButton.Size = UDim2.new(0, 35, 0, 32)
 ExecuteButton.Position = UDim2.new(1, -115, 0.5, -16)
@@ -302,10 +310,8 @@ ExecuteButton.TextColor3 = Color3.fromRGB(100, 255, 100)
 ExecuteButton.Font = Enum.Font.GothamBold
 ExecuteButton.TextSize = 14
 ExecuteButton.Parent = MainFrame
-
-local ExecuteCorner = Instance.new("UICorner")
-ExecuteCorner.CornerRadius = UDim.new(0, 8)
-ExecuteCorner.Parent = ExecuteButton
+Instance.new("UICorner").CornerRadius = UDim.new(0, 8)
+Instance.new("UICorner").Parent = ExecuteButton
 
 -- Botão fechar
 local CloseBtn = Instance.new("TextButton")
@@ -317,16 +323,12 @@ CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 CloseBtn.Font = Enum.Font.GothamBold
 CloseBtn.TextSize = 11
 CloseBtn.Parent = MainFrame
+Instance.new("UICorner").CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner").Parent = CloseBtn
 
-local CloseCorner = Instance.new("UICorner")
-CloseCorner.CornerRadius = UDim.new(0, 6)
-CloseCorner.Parent = CloseBtn
-
--- ============================================
--- ATUALIZAR LABEL DO ALVO
--- ============================================
-local function updateTargetLabel()
-    if enabled then
+-- Atualizar label do alvo
+task.spawn(function()
+    while ScreenGui and ScreenGui.Parent do
         local enemy = findClosestEnemy()
         if enemy then
             TargetLabel.Text = "Alvo: " .. enemy.Name
@@ -335,40 +337,27 @@ local function updateTargetLabel()
             TargetLabel.Text = "Alvo: Nenhum"
             TargetLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
         end
-    else
-        TargetLabel.Text = "Alvo: ---"
-        TargetLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
-    end
-end
-
--- Loop para atualizar label do alvo
-task.spawn(function()
-    while ScreenGui and ScreenGui.Parent do
-        updateTargetLabel()
         task.wait(0.5)
     end
 end)
 
--- ============================================
--- FUNÇÃO DO TOGGLE
--- ============================================
+-- Toggle mode
 local function toggleMode()
     enabled = not enabled
-    
     if enabled then
         ToggleButton.Text = "ON"
         ToggleButton.BackgroundColor3 = Color3.fromRGB(0, 100, 0)
         StatusLabel.Text = "🟢 LIGADO"
         StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
-        print("✅ Modo automático ATIVADO - Executará combos em loop")
+        print("✅ Modo automático ATIVADO")
         
-        -- Iniciar loop automático
+        -- Loop automático
         task.spawn(function()
             while enabled and ScreenGui and ScreenGui.Parent do
                 if not isExecuting then
-                    executeComboWithBackstep()
+                    executeCombo()
                 end
-                task.wait(0.8) -- Delay entre combos
+                task.wait(1)
             end
         end)
     else
@@ -380,45 +369,19 @@ local function toggleMode()
     end
 end
 
--- ============================================
--- EFEITOS HOVER
--- ============================================
-local function setupHover(button, normalColor, hoverColor)
-    button.MouseEnter:Connect(function()
-        button.BackgroundColor3 = hoverColor
-    end)
-    button.MouseLeave:Connect(function()
-        button.BackgroundColor3 = normalColor
-    end)
-end
-
-setupHover(ToggleButton, ToggleButton.BackgroundColor3, Color3.fromRGB(0, 130, 0))
-setupHover(ExecuteButton, Color3.fromRGB(50, 50, 60), Color3.fromRGB(80, 80, 100))
-setupHover(CloseBtn, Color3.fromRGB(60, 60, 70), Color3.fromRGB(200, 50, 50))
-
--- ============================================
--- CLIQUE DOS BOTÕES
--- ============================================
+-- Cliques
 ToggleButton.MouseButton1Click:Connect(toggleMode)
-
 ExecuteButton.MouseButton1Click:Connect(function()
     if not enabled then
-        print("🎮 Executando combo manual com backstep...")
-        executeComboWithBackstep()
-    else
-        print("⚠️ Modo automático ligado, desative para executar manualmente")
+        executeCombo()
     end
 end)
-
 CloseBtn.MouseButton1Click:Connect(function()
     enabled = false
     ScreenGui:Destroy()
-    print("🔒 Interface fechada")
 end)
 
--- ============================================
--- SISTEMA DE ARRASTO
--- ============================================
+-- Arrasto
 local dragging = false
 local dragStart = nil
 local startPos = nil
@@ -443,29 +406,18 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
--- ============================================
--- ATALHOS DE TECLA
--- ============================================
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    
+-- Atalhos
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
     if input.KeyCode == Enum.KeyCode.F then
         if not enabled then
-            executeComboWithBackstep()
+            executeCombo()
         end
     elseif input.KeyCode == Enum.KeyCode.F5 then
         toggleMode()
     end
 end)
 
--- ============================================
--- INICIAR
--- ============================================
-print("✅ Divergent Fist Backstep Toggle CARREGADO!")
-print("📌 Tamanho: Médio (200x95)")
-print("📌 Funciona com PLAYERS e NPCS")
-print("📌 Botão TOGGLE: Liga/Desliga modo automático")
-print("📌 Botão ▶: Executa combo manualmente")
-print("📌 Tecla F: Executa combo com backstep")
-print("📌 Tecla F5: Liga/Desliga modo automático")
-print("⚡ Backstep + 2x Divergent Fist com delay de 0.35s")
+print("✅ Backstep Dash Combo CARREGADO!")
+print("📌 Tecla F: Executar | F5: Ligar/Desligar")
+print("📌 Dash suave de 0.12 segundos")
